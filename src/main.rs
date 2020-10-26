@@ -1,17 +1,17 @@
-#![allow(unused_imports)]
-
 use gio::prelude::*;
 use gtk::prelude::*;
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::env::args;
 use std::rc::Rc;
 use std::sync::Arc;
 use tokio::prelude::*;
+use tokio::runtime;
 use tokio::runtime::Runtime;
 
 mod data;
 
-fn build_login_ui(window: &gtk::ApplicationWindow, runtime: Arc<Runtime>) {
+fn build_login_ui(window: &gtk::ApplicationWindow, runtime: runtime::Handle) {
     let login_vbox = gtk::Box::new(gtk::Orientation::Vertical, 0);
 
     let logo = gtk::Image::from_file("icon.svg");
@@ -26,6 +26,7 @@ fn build_login_ui(window: &gtk::ApplicationWindow, runtime: Arc<Runtime>) {
 
     let email = gtk::Entry::new();
     email.set_placeholder_text(Some("john.smith@mail.com"));
+    email.set_activates_default(true);
     email.set_margin_bottom(25);
     login_vbox.add(&email);
 
@@ -34,6 +35,7 @@ fn build_login_ui(window: &gtk::ApplicationWindow, runtime: Arc<Runtime>) {
     login_vbox.add(&pass_ex);
 
     let password = gtk::Entry::new();
+    password.set_activates_default(true);
     let invis_char = match password.get_invisible_char() {
         Some(c) => c,
         None => '*',
@@ -44,6 +46,7 @@ fn build_login_ui(window: &gtk::ApplicationWindow, runtime: Arc<Runtime>) {
     login_vbox.add(&password);
 
     let button = gtk::Button::with_label("Login");
+
     let window_clone = window.clone();
     let login_vbox_clone = login_vbox.clone();
     let email_clone = email.clone();
@@ -74,33 +77,49 @@ fn build_login_ui(window: &gtk::ApplicationWindow, runtime: Arc<Runtime>) {
             gift_code_sku_id: Option<()>,
         }
 
-        let client = reqwest::Client::new();
-        let res = futures::executor::block_on(
-            runtime.spawn(
-                client
-                    .get("https://google.com/")
-                    // .post("https://discord.com/api/v8/auth/login")
-                    // .json(&LoginData {
-                    //     email: email_clone.get_text().as_str().to_string(),
-                    //     password: password_clone.get_text().as_str().to_string(),
-                    //     undelete: false,
-                    //     captcha_key: None,
-                    //     login_source: None,
-                    //     gift_code_sku_id: None,
-                    // })
-                    .send(),
-            ),
-        )
-        .unwrap();
-        println!("{:?}", res);
+        #[derive(serde::Deserialize)]
+        struct TokenResponse {
+            token: String,
+            _user_settings: HashMap<String, String>,
+        }
+
+        let email_text = email_clone.clone().get_text().as_str().to_string();
+        let password_text = password_clone.clone().get_text().as_str().to_string();
+        runtime.spawn(async move {
+            let res = match reqwest::Client::new()
+                .post("https://discord.com/api/v8/auth/login")
+                .json(&LoginData {
+                    email: email_text,
+                    password: password_text,
+                    undelete: false,
+                    captcha_key: None,
+                    login_source: None,
+                    gift_code_sku_id: None,
+                })
+                .send()
+                .await
+                .unwrap()
+                .json::<TokenResponse>()
+                .await
+            {
+                Ok(t) => println!("{:?}", t.token),
+                Err(e) => {
+                    println!("Incorrect login info! try again.");
+                }
+            };
+        });
     });
     login_vbox.add(&button);
 
     window.add(&login_vbox);
     window.show_all();
+
+    button.set_can_default(true);
+    button.set_property_has_default(true);
+    button.grab_default();
 }
 
-fn build_waiting_ui(window: &gtk::ApplicationWindow, runtime: Arc<Runtime>) {
+fn build_waiting_ui(window: &gtk::ApplicationWindow, runtime: runtime::Handle) {
     // The spinning icon page
 
     let waiting_vbox = gtk::Box::new(gtk::Orientation::Vertical, 0);
@@ -129,14 +148,19 @@ fn main() {
     let runtime = {
         let (sender, receiver) = std::sync::mpsc::sync_channel(0);
         std::thread::spawn(move || {
-            let runtime = Arc::new(
-                tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                    .unwrap(),
-            );
+            let mut runtime = tokio::runtime::Builder::new()
+                .enable_all()
+                .basic_scheduler()
+                .build()
+                .unwrap();
 
-            sender.send(runtime.clone()).unwrap();
+            sender.send(runtime.handle().clone()).unwrap();
+
+            runtime.block_on(async move {
+                loop {
+                    tokio::task::yield_now().await;
+                }
+            });
         });
 
         receiver.recv().unwrap()
