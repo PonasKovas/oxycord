@@ -32,3 +32,5 @@
     strip target/x86_64-pc-windows-gnu/release/oxycord.exe && cp target/x86_64-pc-windows-gnu/release/oxycord.exe ./release/ && zip -r -9 windows-release.zip ./release
 
 After changes, only step 5 and 6 need to be done again.
+
+More info at: https://gtk-rs.org/docs-src/tutorial/cross

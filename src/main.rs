@@ -101,12 +101,13 @@ fn build_login_ui(window: &gtk::ApplicationWindow, runtime: runtime::Handle) {
                 .await
                 .unwrap();
 
-            match res.json::<TokenResponse>().await {
-                Ok(t) => println!("token: {:?}", t.token),
-                Err(_e) => {
-                    println!("Incorrect login info! try again.",);
-                }
-            };
+            println!("{:?}", res.text().await.unwrap());
+            // match res.json::<TokenResponse>().await {
+            //     Ok(t) => println!("token: {:?}", t.token),
+            //     Err(_e) => {
+            //         println!("Incorrect login info! try again.",);
+            //     }
+            // };
         });
     });
     login_vbox.add(&button);
@@ -166,17 +167,6 @@ fn main() {
 
     let application = gtk::Application::new(Some("oxycord.oxycord"), Default::default())
         .expect("GTK application initialization failed.");
-
-    for format in gdk_pixbuf::Pixbuf::get_formats() {
-        println!(
-            "{:?} - {:?}",
-            format.get_name().unwrap().as_str(),
-            format.get_description().unwrap().as_str(),
-        );
-        for extension in format.get_extensions() {
-            println!("\t- {:?}", extension.as_str());
-        }
-    }
 
     let data_clone = data.clone();
     application.connect_activate(move |app| {
