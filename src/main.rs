@@ -77,13 +77,6 @@ fn build_login_ui(window: &gtk::ApplicationWindow, runtime: runtime::Handle) {
             gift_code_sku_id: Option<()>,
         }
 
-        #[derive(serde::Deserialize)]
-        struct TokenResponse {
-            token: String,
-            #[allow(dead_code)]
-            user_settings: HashMap<String, String>,
-        }
-
         let email_text = email_clone.clone().get_text().as_str().to_string();
         let password_text = password_clone.clone().get_text().as_str().to_string();
         runtime.spawn(async move {
@@ -101,13 +94,12 @@ fn build_login_ui(window: &gtk::ApplicationWindow, runtime: runtime::Handle) {
                 .await
                 .unwrap();
 
-            println!("{:?}", res.text().await.unwrap());
-            // match res.json::<TokenResponse>().await {
-            //     Ok(t) => println!("token: {:?}", t.token),
-            //     Err(_e) => {
-            //         println!("Incorrect login info! try again.",);
-            //     }
-            // };
+            match res.json::<serde_json::value::Value>().await {
+                Ok(t) => println!("data: {:?}", t),
+                Err(e) => {
+                    println!("Error: {:?}", e);
+                }
+            };
         });
     });
     login_vbox.add(&button);
