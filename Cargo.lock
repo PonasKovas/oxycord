@@ -852,6 +852,7 @@ dependencies = [
  "gdk-pixbuf",
  "gio",
  "gtk",
+ "lazy_static",
  "reqwest",
  "serde",
  "serde_json",

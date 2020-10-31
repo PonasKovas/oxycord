@@ -4,13 +4,17 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::env::args;
 use std::rc::Rc;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tokio::prelude::*;
 use tokio::runtime;
 use tokio::runtime::Runtime;
 use web_view::*;
 
 mod data;
+
+lazy_static::lazy_static! {
+    static ref DATA: Mutex<data::Data> = Mutex::new(data::Data::load().unwrap());
+}
 
 fn build_login_ui(window: &gtk::ApplicationWindow, runtime: runtime::Handle) {
     let login_vbox = gtk::Box::new(gtk::Orientation::Vertical, 0);
@@ -95,11 +99,39 @@ fn build_login_ui(window: &gtk::ApplicationWindow, runtime: runtime::Handle) {
                 .await
                 .unwrap();
 
-            match res.json::<serde_json::value::Value>().await {
-                Ok(t) => println!("data: {:?}", t),
-                Err(e) => {
-                    println!("Error: {:?}", e);
+            match res.json::<serde_json::Value>().await {
+                Ok(serde_json::Value::Object(o)) => {
+                    let token = if o.contains_key("captcha_key") {
+                        // oh no looks like it's requiring a captcha to be completed
+                        match extract_token_from_discord() {
+                            Some(token) => token,
+                            None => {
+                                // looks like the user just closed the discord window :/
+                                // just exit
+                                std::process::exit(0);
+                            }
+                        }
+                    } else if o.contains_key("token") {
+                        o["token"]
+                            .as_str()
+                            .expect("oopsie woopsie why is the token not a string??")
+                            .to_string()
+                    } else if o.contains_key("errors") {
+                        println!("Incorrect login info :/");
+                        std::process::exit(0);
+                    } else {
+                        eprintln!("Unknown login response: {:?}", o);
+                        std::process::exit(1);
+                    };
+                    let mut data_lock = DATA.lock().unwrap();
+                    data_lock.discord_token = Some(token);
+                    data_lock.save().unwrap();
+                    drop(data_lock);
                 }
+                Err(e) => {
+                    eprintln!("Error: {:?}", e);
+                }
+                Ok(d) => eprintln!("Unknown login response structure: {:?}", d),
             };
         });
     });
@@ -136,21 +168,8 @@ fn build_waiting_ui(window: &gtk::ApplicationWindow, runtime: runtime::Handle) {
 }
 
 fn main() {
-    WebViewBuilder::new()
-        .title("Discord login")
-        .content(Content::Url("https://discord.com/login"))
-        .size(800, 600)
-        .resizable(true)
-        .user_data(())
-        .invoke_handler(|_webview, _arg| Ok(()))
-        .build()
-        .unwrap()
-        .run()
-        .unwrap();
-    return;
-
-    let data = Rc::new(RefCell::new(data::Data::load().unwrap()));
-    println!("{:?}", data);
+    lazy_static::initialize(&DATA);
+    println!("{:?}", *DATA);
 
     let runtime = {
         let (sender, receiver) = std::sync::mpsc::sync_channel(0);
@@ -174,7 +193,6 @@ fn main() {
     let application = gtk::Application::new(Some("oxycord.oxycord"), Default::default())
         .expect("GTK application initialization failed.");
 
-    let data_clone = data.clone();
     application.connect_activate(move |app| {
         let window = gtk::ApplicationWindow::new(app);
         window.set_title("Oxycord Login");
@@ -185,7 +203,7 @@ fn main() {
         window.set_position(gtk::WindowPosition::Center);
         window.set_default_size(350, 0);
 
-        match &data_clone.borrow().discord_token {
+        match &DATA.lock().unwrap().discord_token {
             Some(token) => {
                 build_waiting_ui(&window, runtime.clone());
                 // try connecting
@@ -195,4 +213,25 @@ fn main() {
     });
 
     application.run(&args().collect::<Vec<_>>());
+}
+
+fn extract_token_from_discord() -> Option<String> {
+    let mut token = None;
+    let mut webview = WebViewBuilder::new()
+        .title("Discord login")
+        .content(Content::Url("https://discord.com/login"))
+        .size(800, 600)
+        .resizable(true)
+        .user_data(())
+        .invoke_handler(|webview, arg| {
+            token = Some(arg.to_string());
+            webview.exit();
+            Ok(())
+        })
+        .build()
+        .unwrap();
+    webview.eval(include_str!("extract_token.js")).unwrap();
+    webview.run().unwrap();
+
+    token
 }
