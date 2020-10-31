@@ -26,11 +26,15 @@
     mkdir release/etc/
     mkdir release/etc/gtk-3.0/
     echo -e "[Settings]\ngtk-theme-name=Adapta-Nokto-Eta" > release/etc/gtk-3.0/settings.ini
-5. Compile Oxycord
-    PKG_CONFIG_ALLOW_CROSS=1 PKG_CONFIG_PATH=/usr/i686-w64-mingw32/lib/pkgconfig cargo build --target x86_64-pc-windows-gnu --release --features "windows"
-6. Strip and zip it
+5. Add the webview_edge.dll from PonasKovas/web-view to the release folder
+6. Compile Oxycord
+    PKG_CONFIG_ALLOW_CROSS=1 PKG_CONFIG_PATH=/usr/x86_64-w64-mingw32/lib/pkgconfig cargo build --target x86_64-pc-windows-gnu --release
+7. Strip and zip it
     strip target/x86_64-pc-windows-gnu/release/oxycord.exe && cp target/x86_64-pc-windows-gnu/release/oxycord.exe ./release/ && zip -r -9 windows-release.zip ./release
 
-After changes, only step 5 and 6 need to be done again.
+After changes, repeat step 5 and 6.
 
 More info at: https://gtk-rs.org/docs-src/tutorial/cross
+
+reminder : /home/mykolas/Downloads/WebView2Loader.dll
+/home/mykolas/Downloads/webview.dll

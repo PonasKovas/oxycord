@@ -8,6 +8,7 @@ use std::sync::Arc;
 use tokio::prelude::*;
 use tokio::runtime;
 use tokio::runtime::Runtime;
+use web_view::*;
 
 mod data;
 
@@ -135,6 +136,19 @@ fn build_waiting_ui(window: &gtk::ApplicationWindow, runtime: runtime::Handle) {
 }
 
 fn main() {
+    WebViewBuilder::new()
+        .title("Discord login")
+        .content(Content::Url("https://discord.com/login"))
+        .size(800, 600)
+        .resizable(true)
+        .user_data(())
+        .invoke_handler(|_webview, _arg| Ok(()))
+        .build()
+        .unwrap()
+        .run()
+        .unwrap();
+    return;
+
     let data = Rc::new(RefCell::new(data::Data::load().unwrap()));
     println!("{:?}", data);
 
