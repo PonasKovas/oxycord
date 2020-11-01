@@ -1,3 +1,4 @@
+use async_abstractions::spawn_future;
 use gio::prelude::*;
 use gtk::prelude::*;
 use std::cell::RefCell;
@@ -10,6 +11,7 @@ use tokio::runtime;
 use tokio::runtime::Runtime;
 use web_view::*;
 
+mod async_abstractions;
 mod data;
 
 lazy_static::lazy_static! {
@@ -67,8 +69,8 @@ fn build_login_ui(window: &gtk::ApplicationWindow, runtime: runtime::Handle) {
             return;
         }
         // change to spinning animation
-        window_clone.remove(&login_vbox_clone);
-        build_waiting_ui(&window_clone, runtime.clone());
+        window_clone.remove(&window_clone.get_child().unwrap());
+        build_waiting_ui(&window_clone, runtime.clone(), "Logging in...");
 
         // try retrieving the token
 
@@ -84,56 +86,66 @@ fn build_login_ui(window: &gtk::ApplicationWindow, runtime: runtime::Handle) {
 
         let email_text = email_clone.clone().get_text().as_str().to_string();
         let password_text = password_clone.clone().get_text().as_str().to_string();
-        runtime.spawn(async move {
-            let res = reqwest::Client::new()
-                .post("https://discord.com/api/v8/auth/login")
-                .json(&LoginData {
-                    email: email_text,
-                    password: password_text,
-                    undelete: false,
-                    captcha_key: None,
-                    login_source: None,
-                    gift_code_sku_id: None,
-                })
-                .send()
-                .await
-                .unwrap();
+        let window_clone_clone = window_clone.clone();
+        let login_vbox_clone_clone = login_vbox_clone.clone();
+        let runtime_clone = runtime.clone();
+        spawn_future(
+            runtime.clone(),
+            async move {
+                let res = reqwest::Client::new()
+                    .post("https://discord.com/api/v8/auth/login")
+                    .json(&LoginData {
+                        email: email_text,
+                        password: password_text,
+                        undelete: false,
+                        captcha_key: None,
+                        login_source: None,
+                        gift_code_sku_id: None,
+                    })
+                    .send()
+                    .await
+                    .unwrap();
 
-            match res.json::<serde_json::Value>().await {
-                Ok(serde_json::Value::Object(o)) => {
-                    let token = if o.contains_key("captcha_key") {
-                        // oh no looks like it's requiring a captcha to be completed
-                        match extract_token_from_discord() {
-                            Some(token) => token,
-                            None => {
-                                // looks like the user just closed the discord window :/
-                                // just exit
-                                std::process::exit(0);
+                match res.json::<serde_json::Value>().await {
+                    Ok(serde_json::Value::Object(o)) => {
+                        let token = if o.contains_key("captcha_key") {
+                            // oh no looks like it's requiring a captcha to be completed
+                            match extract_token_from_discord() {
+                                Some(token) => token,
+                                None => {
+                                    // looks like the user just closed the discord window :/
+                                    // just exit
+                                    std::process::exit(0);
+                                }
                             }
-                        }
-                    } else if o.contains_key("token") {
-                        o["token"]
-                            .as_str()
-                            .expect("oopsie woopsie why is the token not a string??")
-                            .to_string()
-                    } else if o.contains_key("errors") {
-                        println!("Incorrect login info :/");
-                        std::process::exit(0);
-                    } else {
-                        eprintln!("Unknown login response: {:?}", o);
-                        std::process::exit(1);
-                    };
-                    let mut data_lock = DATA.lock().unwrap();
-                    data_lock.discord_token = Some(token);
-                    data_lock.save().unwrap();
-                    drop(data_lock);
-                }
-                Err(e) => {
-                    eprintln!("Error: {:?}", e);
-                }
-                Ok(d) => eprintln!("Unknown login response structure: {:?}", d),
-            };
-        });
+                        } else if o.contains_key("token") {
+                            o["token"]
+                                .as_str()
+                                .expect("oopsie woopsie why is the token not a string??")
+                                .to_string()
+                        } else if o.contains_key("errors") {
+                            println!("Incorrect login info :/");
+                            std::process::exit(0);
+                        } else {
+                            eprintln!("Unknown login response: {:?}", o);
+                            std::process::exit(1);
+                        };
+                        let mut data_lock = DATA.lock().unwrap();
+                        data_lock.discord_token = Some(token);
+                        data_lock.save().unwrap();
+                        drop(data_lock);
+                    }
+                    Err(e) => {
+                        eprintln!("Error: {:?}", e);
+                    }
+                    Ok(d) => eprintln!("Unknown login response structure: {:?}", d),
+                };
+            },
+            Some(move |_res| {
+                window_clone_clone.remove(&window_clone_clone.get_child().unwrap());
+                build_waiting_ui(&window_clone_clone, runtime_clone.clone(), "Loading...");
+            }),
+        )
     });
     login_vbox.add(&button);
 
@@ -145,13 +157,13 @@ fn build_login_ui(window: &gtk::ApplicationWindow, runtime: runtime::Handle) {
     button.grab_default();
 }
 
-fn build_waiting_ui(window: &gtk::ApplicationWindow, runtime: runtime::Handle) {
+fn build_waiting_ui(window: &gtk::ApplicationWindow, runtime: runtime::Handle, text: &str) {
     // The spinning icon page
 
     let waiting_vbox = gtk::Box::new(gtk::Orientation::Vertical, 0);
     waiting_vbox.set_valign(gtk::Align::Center);
 
-    let waiting_label = gtk::Label::new(Some("Logging in..."));
+    let waiting_label = gtk::Label::new(Some(text));
     waiting_label.set_halign(gtk::Align::Center);
     waiting_label.set_margin_top(25);
     waiting_label.set_margin_bottom(25);
@@ -205,7 +217,7 @@ fn main() {
 
         match &DATA.lock().unwrap().discord_token {
             Some(token) => {
-                build_waiting_ui(&window, runtime.clone());
+                build_waiting_ui(&window, runtime.clone(), "Logging in...");
                 // try connecting
             }
             None => build_login_ui(&window, runtime.clone()),

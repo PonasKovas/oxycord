@@ -10,6 +10,7 @@ web-view = { git = "https://github.com/PonasKovas/web-view.git", features = ["ed
 gtk = "0.9"
 gio = "0.9"
 gdk = "0.13"
+glib = "0.10"
 gdk-pixbuf = "0.9"
 tokio = { version = "0.2", features = ["full"] }
 directories-next = "2.0"
