@@ -135,6 +135,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
+name = "clone_all"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0f41849eba0194c121ff31ccbfcc0b0fc965a3ea9f5ef23756af72a17938bc57"
+
+[[package]]
 name = "directories-next"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -846,6 +852,7 @@ name = "oxycord"
 version = "0.1.0"
 dependencies = [
  "bincode",
+ "clone_all",
  "directories-next",
  "futures",
  "gdk",

@@ -1,13 +1,10 @@
 use async_abstractions::spawn_future;
+use clone_all::clone_all;
 use gio::prelude::*;
 use gtk::prelude::*;
-
 use std::env::args;
-
 use std::sync::Mutex;
-
 use tokio::runtime;
-
 use web_view::*;
 
 mod async_abstractions;
@@ -53,97 +50,97 @@ fn build_login_ui(window: &gtk::ApplicationWindow, runtime: runtime::Handle) {
 
     let button = gtk::Button::with_label("Login");
 
-    let window_clone = window.clone();
-    let login_vbox_clone = login_vbox.clone();
-    let email_clone = email.clone();
-    let password_clone = password.clone();
-    button.connect_clicked(move |_s| {
-        // check if fields have been filled
-        if email_clone.get_text_length() == 0 {
-            email_clone.set_placeholder_text(Some("Please insert email!"));
-            return;
-        }
-        if password_clone.get_text_length() == 0 {
-            password_clone.set_placeholder_text(Some("Please insert password!"));
-            return;
-        }
-        // change to spinning animation
-        window_clone.remove(&window_clone.get_child().unwrap());
-        build_waiting_ui(&window_clone, runtime.clone(), "Logging in...");
+    button.connect_clicked({
+        clone_all![window, login_vbox, email, password];
+        move |_s| {
+            // check if fields have been filled
+            if email.get_text_length() == 0 {
+                email.set_placeholder_text(Some("Please insert email!"));
+                return;
+            }
+            if password.get_text_length() == 0 {
+                password.set_placeholder_text(Some("Please insert password!"));
+                return;
+            }
+            // change to spinning animation
+            window.remove(&window.get_child().unwrap());
+            build_waiting_ui(&window, runtime.clone(), "Logging in...");
 
-        // try retrieving the token
+            // try retrieving the token
 
-        #[derive(serde::Serialize)]
-        struct LoginData {
-            email: String,
-            password: String,
-            undelete: bool,
-            captcha_key: Option<()>,
-            login_source: Option<()>,
-            gift_code_sku_id: Option<()>,
-        }
+            #[derive(serde::Serialize)]
+            struct LoginData {
+                email: String,
+                password: String,
+                undelete: bool,
+                captcha_key: Option<()>,
+                login_source: Option<()>,
+                gift_code_sku_id: Option<()>,
+            }
 
-        let email_text = email_clone.clone().get_text().as_str().to_string();
-        let password_text = password_clone.clone().get_text().as_str().to_string();
-        let window_clone_clone = window_clone.clone();
-        let runtime_clone = runtime.clone();
-        spawn_future(
-            runtime.clone(),
-            async move {
-                let res = reqwest::Client::new()
-                    .post("https://discord.com/api/v8/auth/login")
-                    .json(&LoginData {
-                        email: email_text,
-                        password: password_text,
-                        undelete: false,
-                        captcha_key: None,
-                        login_source: None,
-                        gift_code_sku_id: None,
-                    })
-                    .send()
-                    .await
-                    .unwrap();
+            let email_text = email.clone().get_text().as_str().to_string();
+            let password_text = password.clone().get_text().as_str().to_string();
+            spawn_future(
+                runtime.clone(),
+                async move {
+                    let res = reqwest::Client::new()
+                        .post("https://discord.com/api/v8/auth/login")
+                        .json(&LoginData {
+                            email: email_text,
+                            password: password_text,
+                            undelete: false,
+                            captcha_key: None,
+                            login_source: None,
+                            gift_code_sku_id: None,
+                        })
+                        .send()
+                        .await
+                        .unwrap();
 
-                match res.json::<serde_json::Value>().await {
-                    Ok(serde_json::Value::Object(o)) => {
-                        let token = if o.contains_key("captcha_key") {
-                            // oh no looks like it's requiring a captcha to be completed
-                            match extract_token_from_discord() {
-                                Some(token) => token,
-                                None => {
-                                    // looks like the user just closed the discord window :/
-                                    // just exit
-                                    std::process::exit(0);
+                    match res.json::<serde_json::Value>().await {
+                        Ok(serde_json::Value::Object(o)) => {
+                            let token = if o.contains_key("captcha_key") {
+                                // oh no looks like it's requiring a captcha to be completed
+                                match extract_token_from_discord() {
+                                    Some(token) => token,
+                                    None => {
+                                        // looks like the user just closed the discord window :/
+                                        // just exit
+                                        std::process::exit(0);
+                                    }
                                 }
-                            }
-                        } else if o.contains_key("token") {
-                            o["token"]
-                                .as_str()
-                                .expect("oopsie woopsie why is the token not a string??")
-                                .to_string()
-                        } else if o.contains_key("errors") {
-                            println!("Incorrect login info :/");
-                            std::process::exit(0);
-                        } else {
-                            eprintln!("Unknown login response: {:?}", o);
-                            std::process::exit(1);
-                        };
-                        let mut data_lock = DATA.lock().unwrap();
-                        data_lock.discord_token = Some(token);
-                        data_lock.save().unwrap();
-                        drop(data_lock);
+                            } else if o.contains_key("token") {
+                                o["token"]
+                                    .as_str()
+                                    .expect("oopsie woopsie why is the token not a string??")
+                                    .to_string()
+                            } else if o.contains_key("errors") {
+                                println!("Incorrect login info :/");
+                                std::process::exit(0);
+                            } else {
+                                eprintln!("Unknown login response: {:?}", o);
+                                std::process::exit(1);
+                            };
+                            let mut data_lock = DATA.lock().unwrap();
+                            data_lock.discord_token = Some(token);
+                            data_lock.save().unwrap();
+                            drop(data_lock);
+                        }
+                        Err(e) => {
+                            eprintln!("Error: {:?}", e);
+                        }
+                        Ok(d) => eprintln!("Unknown login response structure: {:?}", d),
+                    };
+                },
+                Some({
+                    clone_all![window, runtime];
+                    move |_res| {
+                        window.remove(&window.get_child().unwrap());
+                        build_waiting_ui(&window, runtime.clone(), "Loading...");
                     }
-                    Err(e) => {
-                        eprintln!("Error: {:?}", e);
-                    }
-                    Ok(d) => eprintln!("Unknown login response structure: {:?}", d),
-                };
-            },
-            Some(move |_res| {
-                window_clone_clone.remove(&window_clone_clone.get_child().unwrap());
-                build_waiting_ui(&window_clone_clone, runtime_clone.clone(), "Loading...");
-            }),
-        )
+                }),
+            )
+        }
     });
     login_vbox.add(&button);
 
@@ -215,7 +212,7 @@ fn main() {
 
         match &DATA.lock().unwrap().discord_token {
             Some(_token) => {
-                build_waiting_ui(&window, runtime.clone(), "Logging in...");
+                build_waiting_ui(&window, runtime.clone(), "Loading...");
                 // try connecting
             }
             None => build_login_ui(&window, runtime.clone()),
