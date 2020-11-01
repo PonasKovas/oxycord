@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use std::default::Default;
 use std::fs::File;
-use std::path::{Path, PathBuf};
+use std::path::{PathBuf};
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct Data {

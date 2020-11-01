@@ -1,14 +1,13 @@
 use async_abstractions::spawn_future;
 use gio::prelude::*;
 use gtk::prelude::*;
-use std::cell::RefCell;
-use std::collections::HashMap;
+
 use std::env::args;
-use std::rc::Rc;
-use std::sync::{Arc, Mutex};
-use tokio::prelude::*;
+
+use std::sync::Mutex;
+
 use tokio::runtime;
-use tokio::runtime::Runtime;
+
 use web_view::*;
 
 mod async_abstractions;
@@ -87,7 +86,6 @@ fn build_login_ui(window: &gtk::ApplicationWindow, runtime: runtime::Handle) {
         let email_text = email_clone.clone().get_text().as_str().to_string();
         let password_text = password_clone.clone().get_text().as_str().to_string();
         let window_clone_clone = window_clone.clone();
-        let login_vbox_clone_clone = login_vbox_clone.clone();
         let runtime_clone = runtime.clone();
         spawn_future(
             runtime.clone(),
@@ -157,7 +155,7 @@ fn build_login_ui(window: &gtk::ApplicationWindow, runtime: runtime::Handle) {
     button.grab_default();
 }
 
-fn build_waiting_ui(window: &gtk::ApplicationWindow, runtime: runtime::Handle, text: &str) {
+fn build_waiting_ui(window: &gtk::ApplicationWindow, _runtime: runtime::Handle, text: &str) {
     // The spinning icon page
 
     let waiting_vbox = gtk::Box::new(gtk::Orientation::Vertical, 0);
@@ -216,7 +214,7 @@ fn main() {
         window.set_default_size(350, 0);
 
         match &DATA.lock().unwrap().discord_token {
-            Some(token) => {
+            Some(_token) => {
                 build_waiting_ui(&window, runtime.clone(), "Logging in...");
                 // try connecting
             }
