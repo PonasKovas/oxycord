@@ -1,0 +1,7 @@
+entry.login_error {
+	box-shadow: 0px 0px 4px #940c0c;
+}
+
+window, entry, button { /* button doesnt work for some reason :/ */
+	background-color: #263238;
+}

@@ -14,7 +14,12 @@ lazy_static::lazy_static! {
     static ref DATA: Mutex<data::Data> = Mutex::new(data::Data::load().unwrap());
 }
 
-fn build_login_ui(window: &gtk::ApplicationWindow, runtime: runtime::Handle) {
+fn build_login_ui(
+    window: &gtk::ApplicationWindow,
+    runtime: runtime::Handle,
+    initial_email: &str,
+    initial_password: &str,
+) {
     let login_vbox = gtk::Box::new(gtk::Orientation::Vertical, 0);
 
     let logo = gtk::Image::from_file("icon.svg");
@@ -28,6 +33,7 @@ fn build_login_ui(window: &gtk::ApplicationWindow, runtime: runtime::Handle) {
     login_vbox.add(&email_ex);
 
     let email = gtk::Entry::new();
+    email.set_text(initial_email);
     email.set_placeholder_text(Some("john.smith@mail.com"));
     email.set_activates_default(true);
     email.set_margin_bottom(25);
@@ -38,6 +44,7 @@ fn build_login_ui(window: &gtk::ApplicationWindow, runtime: runtime::Handle) {
     login_vbox.add(&pass_ex);
 
     let password = gtk::Entry::new();
+    password.set_text(initial_password);
     password.set_activates_default(true);
     let invis_char = match password.get_invisible_char() {
         Some(c) => c,
@@ -53,15 +60,23 @@ fn build_login_ui(window: &gtk::ApplicationWindow, runtime: runtime::Handle) {
     button.connect_clicked({
         clone_all![window, login_vbox, email, password];
         move |_s| {
+            let email_text = email.get_text().as_str().to_string();
+            let password_text = password.get_text().as_str().to_string();
+
             // check if fields have been filled
-            if email.get_text_length() == 0 {
+            if email_text.len() == 0 {
                 email.set_placeholder_text(Some("Please insert email!"));
+                password.get_style_context().remove_class("login_error");
+                email.get_style_context().add_class("login_error");
                 return;
             }
-            if password.get_text_length() == 0 {
+            if password_text.len() == 0 {
                 password.set_placeholder_text(Some("Please insert password!"));
+                email.get_style_context().remove_class("login_error");
+                password.get_style_context().add_class("login_error");
                 return;
             }
+
             // change to spinning animation
             window.remove(&window.get_child().unwrap());
             build_waiting_ui(&window, runtime.clone(), "Logging in...");
@@ -78,65 +93,89 @@ fn build_login_ui(window: &gtk::ApplicationWindow, runtime: runtime::Handle) {
                 gift_code_sku_id: Option<()>,
             }
 
-            let email_text = email.clone().get_text().as_str().to_string();
-            let password_text = password.clone().get_text().as_str().to_string();
             spawn_future(
                 runtime.clone(),
-                async move {
-                    let res = reqwest::Client::new()
-                        .post("https://discord.com/api/v8/auth/login")
-                        .json(&LoginData {
-                            email: email_text,
-                            password: password_text,
-                            undelete: false,
-                            captcha_key: None,
-                            login_source: None,
-                            gift_code_sku_id: None,
-                        })
-                        .send()
-                        .await
-                        .unwrap();
+                {
+                    clone_all![email_text, password_text];
+                    async move {
+                        let res = reqwest::Client::new()
+                            .post("https://discord.com/api/v8/auth/login")
+                            .json(&LoginData {
+                                email: email_text,
+                                password: password_text,
+                                undelete: false,
+                                captcha_key: None,
+                                login_source: None,
+                                gift_code_sku_id: None,
+                            })
+                            .send()
+                            .await
+                            .unwrap();
 
-                    match res.json::<serde_json::Value>().await {
-                        Ok(serde_json::Value::Object(o)) => {
-                            let token = if o.contains_key("captcha_key") {
-                                // oh no looks like it's requiring a captcha to be completed
-                                match extract_token_from_discord() {
-                                    Some(token) => token,
-                                    None => {
-                                        // looks like the user just closed the discord window :/
-                                        // just exit
-                                        std::process::exit(0);
+                        match res.json::<serde_json::Value>().await {
+                            Ok(serde_json::Value::Object(o)) => {
+                                let token = if o.contains_key("captcha_key") {
+                                    // oh no looks like it's requiring a captcha to be completed
+                                    match extract_token_from_discord() {
+                                        Some(token) => token,
+                                        None => {
+                                            // looks like the user just closed the discord window :/
+                                            // just exit
+                                            std::process::exit(0);
+                                        }
                                     }
-                                }
-                            } else if o.contains_key("token") {
-                                o["token"]
-                                    .as_str()
-                                    .expect("oopsie woopsie why is the token not a string??")
-                                    .to_string()
-                            } else if o.contains_key("errors") {
-                                println!("Incorrect login info :/");
-                                std::process::exit(0);
-                            } else {
-                                eprintln!("Unknown login response: {:?}", o);
+                                } else if o.contains_key("token") {
+                                    o["token"]
+                                        .as_str()
+                                        .expect("oopsie woopsie why is the token not a string??")
+                                        .to_string()
+                                } else if o.contains_key("errors") {
+                                    return Err("Incorrect login info");
+                                } else {
+                                    eprintln!("Unknown login response: {:?}", o);
+                                    std::process::exit(1);
+                                };
+                                let mut data_lock = DATA.lock().unwrap();
+                                data_lock.discord_token = Some(token);
+                                data_lock.save().unwrap();
+                                drop(data_lock);
+                            }
+                            Err(e) => {
+                                eprintln!("Error: {:?}", e);
                                 std::process::exit(1);
-                            };
-                            let mut data_lock = DATA.lock().unwrap();
-                            data_lock.discord_token = Some(token);
-                            data_lock.save().unwrap();
-                            drop(data_lock);
-                        }
-                        Err(e) => {
-                            eprintln!("Error: {:?}", e);
-                        }
-                        Ok(d) => eprintln!("Unknown login response structure: {:?}", d),
-                    };
+                            }
+                            Ok(d) => {
+                                eprintln!("Unknown login response structure: {:?}", d);
+                                std::process::exit(1);
+                            }
+                        };
+                        Ok(())
+                    }
                 },
                 Some({
                     clone_all![window, runtime];
-                    move |_res| {
+                    move |res| {
                         window.remove(&window.get_child().unwrap());
-                        build_waiting_ui(&window, runtime.clone(), "Loading...");
+                        match res {
+                            Ok(()) => build_waiting_ui(&window, runtime.clone(), "Loading..."),
+                            Err(e) => {
+                                build_login_ui(
+                                    &window,
+                                    runtime.clone(),
+                                    &email_text,
+                                    &password_text,
+                                );
+                                let message = gtk::MessageDialog::new(
+                                    Some(&window),
+                                    gtk::DialogFlags::MODAL & gtk::DialogFlags::DESTROY_WITH_PARENT,
+                                    gtk::MessageType::Error,
+                                    gtk::ButtonsType::Ok,
+                                    e,
+                                );
+                                message.run();
+                                message.close();
+                            }
+                        }
                     }
                 }),
             )
@@ -201,6 +240,17 @@ fn main() {
         .expect("GTK application initialization failed.");
 
     application.connect_activate(move |app| {
+        // initialize CSS
+        let provider = gtk::CssProvider::new();
+        provider
+            .load_from_data(include_bytes!("style.css"))
+            .expect("Failed to load CSS");
+        gtk::StyleContext::add_provider_for_screen(
+            &gdk::Screen::get_default().expect("Error initializing gtk css provider."),
+            &provider,
+            gtk::STYLE_PROVIDER_PRIORITY_USER,
+        );
+
         let window = gtk::ApplicationWindow::new(app);
         window.set_title("Oxycord Login");
         window
@@ -215,7 +265,7 @@ fn main() {
                 build_waiting_ui(&window, runtime.clone(), "Loading...");
                 // try connecting
             }
-            None => build_login_ui(&window, runtime.clone()),
+            None => build_login_ui(&window, runtime.clone(), "", ""),
         }
     });
 
